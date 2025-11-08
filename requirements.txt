@@ -1,0 +1,3 @@
+huggingface-hub>=0.20.0
+aiohttp>=3.9.0
+
