@@ -33,4 +33,5 @@ presets.json
 *.ckpt
 *.pt
 *.pth
+publish.ps1
 
