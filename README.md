@@ -1,5 +1,7 @@
 # ComfyUI Preset Download Manager
 
+![Preset Download Manager](intro.png)
+
 A custom ComfyUI node that allows you to manage and download models from HuggingFace with a convenient preset system.
 
 ## Features
