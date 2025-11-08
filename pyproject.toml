@@ -9,10 +9,10 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/YOUR_USERNAME/ComfyUI-PresetDownloadManager"
+Repository = "https://github.com/Smyshnikof/ComfyUI-PresetDownloadManager"
 
 [tool.comfy]
-PublisherId = "YOUR_PUBLISHER_ID"
-DisplayName = "HF Preset Download Manager"
-Icon = "https://raw.githubusercontent.com/YOUR_USERNAME/ComfyUI-PresetDownloadManager/main/icon.png"
+PublisherId = "smyshnikof"
+DisplayName = "Preset Download Manager"
+Icon = ""
 
