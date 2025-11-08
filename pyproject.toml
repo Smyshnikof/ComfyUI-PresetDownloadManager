@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-preset-download-manager"
 description = "A custom ComfyUI node for managing and downloading models from HuggingFace with preset support"
-version = "1.0.3"
+version = "1.0.4"
 license = { file = "LICENSE" }
 dependencies = [
     "huggingface-hub>=0.20.0",

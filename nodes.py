@@ -84,14 +84,10 @@ def setup_routes():
         save_path = data.get("save_path", "checkpoints")
         hf_token = data.get("hf_token", "")  # Опциональный API ключ
         
-        print(f"[PresetDownloadManager] Получен запрос на загрузку:")
-        print(f"[PresetDownloadManager]   model_id: {model_id}")
-        print(f"[PresetDownloadManager]   model_path: {model_path}")
-        print(f"[PresetDownloadManager]   save_path: {save_path}")
-        
         try:
-            # Маппинг типов папок на методы folder_paths
-            folder_mapping = {
+            # Типы папок, которые точно поддерживаются через folder_paths.get_folder_paths()
+            # Для остальных используем models_dir с подпапкой
+            supported_folder_types = {
                 "checkpoints": "checkpoints",
                 "loras": "loras",
                 "vae": "vae",
@@ -108,7 +104,6 @@ def setup_routes():
                 "vae_approx": "vae_approx",
                 "ipadapter": "ipadapter",
                 "gligen": "gligen",
-                "diffusion_models": "diffusion_models",
                 "text_encoders": "text_encoders",
                 "audio_encoders": "audio_encoders",
                 "configs": "configs",
@@ -122,29 +117,24 @@ def setup_routes():
             save_path_lower = save_path.lower().strip()
             base_path = None
             
-            # Пробуем получить путь через folder_paths, если тип есть в маппинге
-            if save_path_lower in folder_mapping:
-                folder_type = folder_mapping[save_path_lower]
-                print(f"[PresetDownloadManager] Пробуем получить путь для типа: {folder_type}")
+            # Пробуем получить путь через folder_paths только для поддерживаемых типов
+            if save_path_lower in supported_folder_types:
+                folder_type = supported_folder_types[save_path_lower]
                 try:
                     paths = folder_paths.get_folder_paths(folder_type)
-                    if paths and len(paths) > 0 and paths[0]:
+                    if paths and len(paths) > 0 and paths[0] and paths[0].strip():
                         base_path = paths[0]
-                        print(f"[PresetDownloadManager] ✅ Найдена папка через folder_paths: {folder_type} -> {base_path}")
-                    else:
-                        print(f"[PresetDownloadManager] ⚠️ get_folder_paths('{folder_type}') вернул пустой список, используем models_dir")
-                except Exception as e:
-                    print(f"[PresetDownloadManager] ⚠️ get_folder_paths('{folder_type}') не поддерживается: {type(e).__name__}, используем models_dir")
+                except Exception:
+                    pass
             
-            # Если не получилось через folder_paths, используем models_dir с подпапкой
-            # Это работает для всех типов папок, включая те, которые не поддерживаются folder_paths
-            if base_path is None:
-                base_path = folder_paths.models_dir
+            # Для неподдерживаемых типов (например, diffusion_models) или если get_folder_paths не сработал
+            # используем models_dir с подпапкой
+            if not base_path or not base_path.strip():
+                models_dir = folder_paths.models_dir
                 # Создаём подпапку с именем типа, если её нет
-                target_dir = os.path.join(base_path, save_path)
+                target_dir = os.path.join(models_dir, save_path)
                 os.makedirs(target_dir, exist_ok=True)
                 base_path = target_dir
-                print(f"[PresetDownloadManager] ✅ Используем models_dir с подпапкой: {base_path}")
             
             # Если указан model_path (конкретный файл), сохраняем напрямую в выбранную папку
             # Если model_path не указан (вся модель), создаём подпапку с именем модели
@@ -173,24 +163,9 @@ def setup_routes():
             # Настройка таймаутов через переменные окружения (если нужно)
             # Можно установить: export HF_HUB_DOWNLOAD_TIMEOUT=300
             
-            print(f"[PresetDownloadManager] Начинаем загрузку модели: {model_id}")
-            if model_path:
-                print(f"[PresetDownloadManager] Файл: {model_path}")
-            print(f"[PresetDownloadManager] Сохранение в: {base_path}")
-            
-            # Проверяем наличие прокси в переменных окружения
-            proxy_info = ""
-            if os.environ.get('HTTP_PROXY') or os.environ.get('HTTPS_PROXY'):
-                proxy_info = " (используется прокси)"
-            if os.environ.get('HF_ENDPOINT'):
-                proxy_info += f" (используется зеркало: {os.environ.get('HF_ENDPOINT')})"
-            if proxy_info:
-                print(f"[PresetDownloadManager]{proxy_info}")
-            
             # Пробуем загрузить с повторными попытками
             for attempt in range(max_retries):
                 try:
-                    print(f"[PresetDownloadManager] Попытка {attempt + 1}/{max_retries}...")
                     
                     # Используем токен, если он указан
                     token = hf_token if hf_token else None
@@ -217,15 +192,12 @@ def setup_routes():
                             token=token  # API ключ (если указан)
                         )
                     
-                    print(f"[PresetDownloadManager] ✅ Модель успешно загружена: {downloaded_path}")
                     # Если успешно загрузили, выходим из цикла
                     break
                     
                 except Exception as e:
                     last_error = e
                     error_msg = str(e)
-                    
-                    print(f"[PresetDownloadManager] ❌ Ошибка на попытке {attempt + 1}: {error_msg}")
                     
                     # Проверяем, это таймаут или ошибка соединения
                     is_timeout = any(keyword in error_msg.lower() for keyword in [
@@ -235,11 +207,6 @@ def setup_routes():
                     
                     if is_timeout and attempt < max_retries - 1:
                         # Если это таймаут и есть еще попытки, ждем и пробуем снова
-                        print(f"[PresetDownloadManager] Повторная попытка через {retry_delay} секунд...")
-                        print(f"[PresetDownloadManager] 💡 Совет: Если проблема повторяется, попробуйте:")
-                        print(f"[PresetDownloadManager]    1. Использовать прокси: export HTTPS_PROXY=http://your-proxy:port")
-                        print(f"[PresetDownloadManager]    2. Использовать зеркало: export HF_ENDPOINT=https://hf-mirror.com")
-                        print(f"[PresetDownloadManager]    3. Проверить интернет-соединение")
                         time.sleep(retry_delay)
                         retry_delay = min(retry_delay * 1.5, 60)  # Увеличиваем задержку, но не более 60 сек
                         continue
@@ -321,8 +288,7 @@ def init_routes():
     """Инициализация routes после загрузки модуля"""
     try:
         setup_routes()
-    except Exception as e:
-        print(f"[PresetDownloadManager] Ошибка при регистрации routes: {e}")
+    except Exception:
         # Попробуем зарегистрировать позже
         import time
         time.sleep(0.1)
