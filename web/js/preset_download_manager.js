@@ -804,7 +804,7 @@ app.registerExtension({
                 for (let i = 0; i < models.length; i++) {
                     const model = models[i];
                     
-                    // Обновляем прогресс
+                    // Обновляем прогресс перед началом загрузки
                     updateProgressModal(progressModal, i + 1, totalModels, model.model_id);
                     
                     try {
@@ -822,6 +822,10 @@ app.registerExtension({
                         const result = await response.json();
                         
                         if (result.status === "success") {
+                            // Обновляем прогресс с путем сохранения
+                            if (result.path) {
+                                updateProgressModal(progressModal, i + 1, totalModels, model.model_id, result.path);
+                            }
                             successCount++;
                 } else {
                             errorCount++;
@@ -912,9 +916,24 @@ app.registerExtension({
             progressText.style.cssText = `
                         color: #aaa;
                         font-size: 14px;
-                margin-bottom: 12px;
+                margin-bottom: 8px;
             `;
             modal.appendChild(progressText);
+            
+            // Добавляем отображение пути сохранения
+            const pathText = document.createElement("div");
+            pathText.id = "download-path-text";
+            pathText.textContent = ``;
+            pathText.style.cssText = `
+                        color: #888;
+                        font-size: 12px;
+                        font-family: monospace;
+                        margin-bottom: 12px;
+                        word-break: break-all;
+                        max-height: 60px;
+                        overflow-y: auto;
+            `;
+            modal.appendChild(pathText);
             
             const progressBarContainer = document.createElement("div");
             progressBarContainer.style.cssText = `
@@ -949,16 +968,25 @@ app.registerExtension({
                 overlay: overlay,
                 modal: modal,
                 progressText: progressText,
-                progressBar: progressBar
+                progressBar: progressBar,
+                pathText: pathText
             };
         }
         
         // Функция для обновления прогресса
-        function updateProgressModal(progressModal, current, total, modelName) {
+        function updateProgressModal(progressModal, current, total, modelName, savePath = null) {
             const percentage = (current / total) * 100;
             progressModal.progressBar.style.width = `${percentage}%`;
             progressModal.progressBar.textContent = `${current}/${total}`;
             progressModal.progressText.textContent = `Downloading: ${modelName} (${current} of ${total})`;
+            
+            // Обновляем путь сохранения, если он указан
+            if (savePath) {
+                progressModal.pathText.textContent = `Saving to: ${savePath}`;
+                progressModal.pathText.style.color = "#4ade80";
+            } else {
+                progressModal.pathText.textContent = ``;
+            }
         }
         
         // Функция для закрытия модального окна прогресса
@@ -1047,6 +1075,10 @@ app.registerExtension({
                             const result = await response.json();
                             
                             if (result.status === "success") {
+                                // Обновляем прогресс с путем сохранения
+                                if (result.path) {
+                                    updateProgressModal(progressModal, currentModel, totalModels, `${model.model_id} (${preset.name})`, result.path);
+                                }
                                 successCount++;
                             } else {
                                 errorCount++;

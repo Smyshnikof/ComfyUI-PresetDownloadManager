@@ -85,8 +85,8 @@ def setup_routes():
         hf_token = data.get("hf_token", "")  # Опциональный API ключ
         
         try:
-            # Типы папок, которые точно поддерживаются через folder_paths.get_folder_paths()
-            # Для остальных используем models_dir с подпапкой
+            # Типы папок, которые поддерживаются через folder_paths.get_folder_paths()
+            # Для остальных стандартных папок (например, diffusion_models) используем models_dir
             supported_folder_types = {
                 "checkpoints": "checkpoints",
                 "loras": "loras",
@@ -113,22 +113,34 @@ def setup_routes():
                 "vibevoice": "vibevoice"
             }
             
+            # Типы папок, для которых get_folder_paths возвращает неправильный путь
+            # Всегда используем models_dir для этих типов
+            force_models_dir_types = {"diffusion_models"}
+            
             # Определяем путь сохранения
             save_path_lower = save_path.lower().strip()
             base_path = None
             
+            # Для проблемных типов сразу используем models_dir
+            if save_path_lower in force_models_dir_types:
+                pass  # base_path останется None, будет использован fallback
             # Пробуем получить путь через folder_paths только для поддерживаемых типов
-            if save_path_lower in supported_folder_types:
+            elif save_path_lower in supported_folder_types:
                 folder_type = supported_folder_types[save_path_lower]
                 try:
                     paths = folder_paths.get_folder_paths(folder_type)
                     if paths and len(paths) > 0 and paths[0] and paths[0].strip():
-                        base_path = paths[0]
+                        # Проверяем, что путь действительно содержит название нужной папки
+                        # Это защита от случаев, когда get_folder_paths возвращает неправильный путь
+                        returned_path = paths[0].strip()
+                        if save_path_lower in returned_path.lower():
+                            base_path = returned_path
                 except Exception:
                     pass
             
-            # Для неподдерживаемых типов (например, diffusion_models) или если get_folder_paths не сработал
-            # используем models_dir с подпапкой
+            # Fallback: используем models_dir с подпапкой
+            # Это работает для всех типов: стандартных, которые не поддерживаются get_folder_paths
+            # (например, diffusion_models), и нестандартных (кастомные папки)
             if not base_path or not base_path.strip():
                 models_dir = folder_paths.models_dir
                 # Создаём подпапку с именем типа, если её нет
@@ -166,7 +178,6 @@ def setup_routes():
             # Пробуем загрузить с повторными попытками
             for attempt in range(max_retries):
                 try:
-                    
                     # Используем токен, если он указан
                     token = hf_token if hf_token else None
                     
