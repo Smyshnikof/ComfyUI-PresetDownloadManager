@@ -73,6 +73,36 @@ A custom ComfyUI node that allows you to manage and download models from Hugging
 - **🗑️ Delete**: Remove individual presets or multiple selected presets
 - **❓ Help**: Click the **"?"** button in the header for detailed instructions
 
+### Example Presets File
+
+You can import presets from a JSON file. See `custom-presets.json` in the repository for an example format:
+
+```json
+{
+  "categories": [],
+  "presets": [
+    {
+      "id": "preset-1",
+      "name": "My Preset",
+      "category": "Custom",
+      "models": [
+        {
+          "model_id": "username/model-name",
+          "model_path": "model.safetensors",
+          "save_path": "checkpoints",
+          "hf_token": ""
+        }
+      ]
+    }
+  ]
+}
+```
+
+To import:
+1. Click **"📥 Import"** in the manager
+2. Select your JSON file
+3. Your presets will be merged with existing ones
+
 ## Field Descriptions
 
 ### HuggingFace Model ID
@@ -223,6 +253,36 @@ If the "Open Manager" button doesn't appear after adding the node:
 - **📥 Import/Export**: Импорт или экспорт пресетов как JSON файлы
 - **🗑️ Delete**: Удаление отдельных пресетов или нескольких выбранных пресетов
 - **❓ Help**: Нажмите кнопку **"?"** в заголовке для подробных инструкций
+
+### Пример файла пресетов
+
+Вы можете импортировать пресеты из JSON файла. Смотрите `custom-presets.json` в репозитории для примера формата:
+
+```json
+{
+  "categories": [],
+  "presets": [
+    {
+      "id": "preset-1",
+      "name": "Мой пресет",
+      "category": "Кастомный",
+      "models": [
+        {
+          "model_id": "username/model-name",
+          "model_path": "model.safetensors",
+          "save_path": "checkpoints",
+          "hf_token": ""
+        }
+      ]
+    }
+  ]
+}
+```
+
+Для импорта:
+1. Нажмите **"📥 Import"** в менеджере
+2. Выберите ваш JSON файл
+3. Ваши пресеты будут объединены с существующими
 
 ## Описание полей
 
