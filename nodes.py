@@ -121,54 +121,27 @@ def setup_routes():
             # Определяем путь сохранения
             save_path_lower = save_path.lower().strip()
             base_path = None
-            folder_type_found = None
             
-            # Сначала пробуем точное совпадение
+            # Пробуем получить путь через folder_paths, если тип есть в маппинге
             if save_path_lower in folder_mapping:
                 folder_type = folder_mapping[save_path_lower]
                 print(f"[PresetDownloadManager] Пробуем получить путь для типа: {folder_type}")
                 try:
                     paths = folder_paths.get_folder_paths(folder_type)
-                    print(f"[PresetDownloadManager] get_folder_paths('{folder_type}') вернул: {paths}")
-                    if paths and len(paths) > 0:
+                    if paths and len(paths) > 0 and paths[0]:
                         base_path = paths[0]
-                        folder_type_found = folder_type
-                        print(f"[PresetDownloadManager] ✅ Найдена папка по точному совпадению: {folder_type} -> {base_path}")
+                        print(f"[PresetDownloadManager] ✅ Найдена папка через folder_paths: {folder_type} -> {base_path}")
                     else:
-                        print(f"[PresetDownloadManager] ⚠️ get_folder_paths('{folder_type}') вернул пустой список или None")
+                        print(f"[PresetDownloadManager] ⚠️ get_folder_paths('{folder_type}') вернул пустой список, используем models_dir")
                 except Exception as e:
-                    print(f"[PresetDownloadManager] ❌ Ошибка при получении пути для {folder_type}: {type(e).__name__}: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    print(f"[PresetDownloadManager] ⚠️ get_folder_paths('{folder_type}') не поддерживается: {type(e).__name__}, используем models_dir")
             
-            # Если не нашли по точному совпадению, пробуем подстроки
-            if base_path is None:
-                print(f"[PresetDownloadManager] Точное совпадение не найдено, пробуем подстроки...")
-                for key, folder_type in folder_mapping.items():
-                    # Проверяем, что ключ точно совпадает или является частью save_path
-                    if key == save_path_lower or (len(key) < len(save_path_lower) and key in save_path_lower):
-                        print(f"[PresetDownloadManager] Пробуем подстроку: {key} -> {folder_type}")
-                        try:
-                            paths = folder_paths.get_folder_paths(folder_type)
-                            print(f"[PresetDownloadManager] get_folder_paths('{folder_type}') вернул: {paths}")
-                            if paths and len(paths) > 0:
-                                base_path = paths[0]
-                                folder_type_found = folder_type
-                                print(f"[PresetDownloadManager] ✅ Найдена папка по подстроке: {folder_type} -> {base_path}")
-                                break
-                            else:
-                                print(f"[PresetDownloadManager] ⚠️ get_folder_paths('{folder_type}') вернул пустой список")
-                        except Exception as e:
-                            print(f"[PresetDownloadManager] ❌ Ошибка при получении пути для {folder_type}: {type(e).__name__}: {e}")
-                            continue
-            
-            # Если не нашли через folder_paths, используем models_dir
+            # Если не получилось через folder_paths, используем models_dir с подпапкой
+            # Это работает для всех типов папок, включая те, которые не поддерживаются folder_paths
             if base_path is None:
                 base_path = folder_paths.models_dir
-                print(f"[PresetDownloadManager] ⚠️ Не удалось найти путь через folder_paths, используем models_dir: {base_path}")
                 # Создаём подпапку с именем типа, если её нет
                 target_dir = os.path.join(base_path, save_path)
-                print(f"[PresetDownloadManager] Создаём подпапку: {target_dir}")
                 os.makedirs(target_dir, exist_ok=True)
                 base_path = target_dir
                 print(f"[PresetDownloadManager] ✅ Используем models_dir с подпапкой: {base_path}")
