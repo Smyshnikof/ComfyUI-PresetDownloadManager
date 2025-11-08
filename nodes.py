@@ -135,8 +135,11 @@ def setup_routes():
                 target_dir = os.path.join(base_path, save_path)
                 os.makedirs(target_dir, exist_ok=True)
                 base_path = target_dir
-            else:
-                # Создаём подпапку для модели
+            
+            # Если указан model_path (конкретный файл), сохраняем напрямую в выбранную папку
+            # Если model_path не указан (вся модель), создаём подпапку с именем модели
+            if not model_path:
+                # Создаём подпапку для модели только если скачиваем всю модель
                 model_name = model_id.split("/")[-1]
                 target_dir = os.path.join(base_path, model_name)
                 os.makedirs(target_dir, exist_ok=True)
