@@ -84,6 +84,11 @@ def setup_routes():
         save_path = data.get("save_path", "checkpoints")
         hf_token = data.get("hf_token", "")  # Опциональный API ключ
         
+        print(f"[PresetDownloadManager] Получен запрос на загрузку:")
+        print(f"[PresetDownloadManager]   model_id: {model_id}")
+        print(f"[PresetDownloadManager]   model_path: {model_path}")
+        print(f"[PresetDownloadManager]   save_path: {save_path}")
+        
         try:
             # Маппинг типов папок на методы folder_paths
             folder_mapping = {
@@ -114,27 +119,46 @@ def setup_routes():
             }
             
             # Определяем путь сохранения
-            save_path_lower = save_path.lower()
+            save_path_lower = save_path.lower().strip()
             base_path = None
+            folder_type_found = None
             
-            # Пробуем найти соответствующий тип папки
-            for key, folder_type in folder_mapping.items():
-                if key in save_path_lower:
-                    try:
-                        paths = folder_paths.get_folder_paths(folder_type)
-                        if paths and len(paths) > 0:
-                            base_path = paths[0]
-                            break
-                    except Exception:
-                        continue
+            # Сначала пробуем точное совпадение
+            if save_path_lower in folder_mapping:
+                folder_type = folder_mapping[save_path_lower]
+                try:
+                    paths = folder_paths.get_folder_paths(folder_type)
+                    if paths and len(paths) > 0:
+                        base_path = paths[0]
+                        folder_type_found = folder_type
+                        print(f"[PresetDownloadManager] Найдена папка по точному совпадению: {folder_type} -> {base_path}")
+                except Exception as e:
+                    print(f"[PresetDownloadManager] Ошибка при получении пути для {folder_type}: {e}")
             
-            # Если не нашли, используем models_dir
+            # Если не нашли по точному совпадению, пробуем подстроки
+            if base_path is None:
+                for key, folder_type in folder_mapping.items():
+                    # Проверяем, что ключ точно совпадает или является частью save_path
+                    if key == save_path_lower or (len(key) < len(save_path_lower) and key in save_path_lower):
+                        try:
+                            paths = folder_paths.get_folder_paths(folder_type)
+                            if paths and len(paths) > 0:
+                                base_path = paths[0]
+                                folder_type_found = folder_type
+                                print(f"[PresetDownloadManager] Найдена папка по подстроке: {folder_type} -> {base_path}")
+                                break
+                        except Exception as e:
+                            print(f"[PresetDownloadManager] Ошибка при получении пути для {folder_type}: {e}")
+                            continue
+            
+            # Если не нашли через folder_paths, используем models_dir
             if base_path is None:
                 base_path = folder_paths.models_dir
                 # Создаём подпапку с именем типа, если её нет
                 target_dir = os.path.join(base_path, save_path)
                 os.makedirs(target_dir, exist_ok=True)
                 base_path = target_dir
+                print(f"[PresetDownloadManager] Используем models_dir с подпапкой: {base_path}")
             
             # Если указан model_path (конкретный файл), сохраняем напрямую в выбранную папку
             # Если model_path не указан (вся модель), создаём подпапку с именем модели
