@@ -7,7 +7,9 @@ A custom ComfyUI node that allows you to manage and download models from Hugging
 ## Features
 
 - 🎯 **Preset Management**: Create and manage presets containing multiple models
-- ⬇️ **Direct Download**: Download models directly from HuggingFace
+- 🔗 **Direct URL Download**: Download models directly by URL (default option)
+- 🤗 **HuggingFace Integration**: Support for HuggingFace Model ID with optional Model Path
+- ⚡ **Smart Download**: Automatically skips already downloaded files
 - 🎨 **Modern UI**: Beautiful dark-themed interface with modal windows
 - 💾 **JSON Storage**: Presets are saved in JSON format for easy backup and sharing
 - 🔑 **Private Models**: Support for HuggingFace API tokens for private/gated models
@@ -41,11 +43,16 @@ A custom ComfyUI node that allows you to manage and download models from Hugging
 2. Enter a **Preset Name** (required)
 3. Optionally add a **Category** for organization
 4. Add one or more models to the preset:
-   - **HuggingFace Model ID** (required): Format `username/model-name`
-     - Example: `runwayml/stable-diffusion-v1-5`
-   - **Model Path** (optional): Specific file path within the repository
-     - Example: `model.safetensors` or `vae/vae.safetensors`
-     - Leave empty to download the entire repository
+   - **Direct URL** (default, required): Direct download link to the model file
+     - Example: `https://huggingface.co/user/model/resolve/main/file.safetensors`
+     - This is the default option - just paste the direct URL
+   - **☐ Use HuggingFace Repository** (checkbox): Enable to use HuggingFace Model ID instead
+     - When checked, you'll see:
+       - **HuggingFace Model ID** (required): Format `username/model-name`
+         - Example: `runwayml/stable-diffusion-v1-5`
+       - **Model Path** (optional): Specific file path within the repository
+         - Example: `model.safetensors` or `vae/vae.safetensors`
+         - Leave empty to download the entire repository
    - **Save to Folder** (required): Choose where to save the model
      - Standard folders: `checkpoints`, `loras`, `vae`, `upscale_models`, etc.
      - Or select "Custom folder..." to specify a custom path
@@ -87,6 +94,18 @@ You can import presets from a JSON file. See `custom-presets.json` in the reposi
       "category": "Custom",
       "models": [
         {
+          "direct_url": "https://huggingface.co/user/model/resolve/main/file.safetensors",
+          "save_path": "checkpoints",
+          "hf_token": ""
+        }
+      ]
+    },
+    {
+      "id": "preset-2",
+      "name": "HuggingFace Preset",
+      "category": "Custom",
+      "models": [
+        {
           "model_id": "username/model-name",
           "model_path": "model.safetensors",
           "save_path": "checkpoints",
@@ -104,6 +123,23 @@ To import:
 3. Your presets will be merged with existing ones
 
 ## Field Descriptions
+
+### Direct URL (Default)
+The direct download link to the model file. This is the default and recommended method for downloading models.
+
+**How to get a Direct URL:**
+1. Go to the model page on [huggingface.co](https://huggingface.co)
+2. Navigate to the file you want to download
+3. Click on the file name
+4. Click the "Download" button or right-click and "Copy link address"
+5. The URL should look like: `https://huggingface.co/user/model/resolve/main/file.safetensors`
+
+**Examples:**
+- `https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned.safetensors`
+- `https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors`
+
+### Use HuggingFace Repository (Checkbox)
+Enable this checkbox to use HuggingFace Model ID instead of Direct URL. When enabled, you'll see additional fields for HuggingFace Model ID and Model Path.
 
 ### HuggingFace Model ID
 The model identifier on HuggingFace in the format `username/model-name`. You can find this on the model's page at [huggingface.co](https://huggingface.co) - it's the path in the URL after the domain.
@@ -147,6 +183,9 @@ A preset is a group of models that can be downloaded together with one click. Yo
 
 ## Tips & Tricks
 
+- **Direct URL is the default** - just paste the download link, no need to enable HuggingFace Repository unless you need it
+- Files are **automatically checked** before download - existing files are skipped to save time and bandwidth
+- When using Model Path, files are saved **directly to the selected folder** without creating subdirectories
 - You can add multiple models to one preset
 - Use categories to organize presets
 - Edit presets using the ✏️ button
@@ -154,6 +193,7 @@ A preset is a group of models that can be downloaded together with one click. Yo
 - On timeout, the download will automatically resume on the next attempt
 - Use proxy or mirrors if access to HuggingFace is restricted
 - For private models, specify the HuggingFace API Token
+- **Presets are saved automatically** in `presets.json` and persist after ComfyUI restart
 
 ## Troubleshooting
 
@@ -188,7 +228,9 @@ If the "Open Manager" button doesn't appear after adding the node:
 ## Возможности
 
 - 🎯 **Управление пресетами**: Создавайте и управляйте пресетами, содержащими несколько моделей
-- ⬇️ **Прямая загрузка**: Загружайте модели напрямую из HuggingFace
+- 🔗 **Прямая ссылка**: Загрузка моделей по прямой ссылке (по умолчанию)
+- 🤗 **Интеграция с HuggingFace**: Поддержка HuggingFace Model ID с опциональным Model Path
+- ⚡ **Умная загрузка**: Автоматически пропускает уже загруженные файлы
 - 🎨 **Современный UI**: Красивый интерфейс с темной темой и модальными окнами
 - 💾 **Хранение в JSON**: Пресеты сохраняются в формате JSON для удобного резервного копирования и обмена
 - 🔑 **Приватные модели**: Поддержка API токенов HuggingFace для приватных/ограниченных моделей
@@ -222,11 +264,16 @@ If the "Open Manager" button doesn't appear after adding the node:
 2. Введите **Preset Name** (обязательно)
 3. Опционально добавьте **Category** для организации
 4. Добавьте одну или несколько моделей в пресет:
-   - **HuggingFace Model ID** (обязательно): Формат `username/model-name`
-     - Пример: `runwayml/stable-diffusion-v1-5`
-   - **Model Path** (опционально): Путь к конкретному файлу в репозитории
-     - Пример: `model.safetensors` или `vae/vae.safetensors`
-     - Оставьте пустым, чтобы загрузить весь репозиторий
+   - **Direct URL** (по умолчанию, обязательно): Прямая ссылка для скачивания файла модели
+     - Пример: `https://huggingface.co/user/model/resolve/main/file.safetensors`
+     - Это опция по умолчанию - просто вставьте прямую ссылку
+   - **☐ Use HuggingFace Repository** (чекбокс): Включите для использования HuggingFace Model ID
+     - При включении появятся поля:
+       - **HuggingFace Model ID** (обязательно): Формат `username/model-name`
+         - Пример: `runwayml/stable-diffusion-v1-5`
+       - **Model Path** (опционально): Путь к конкретному файлу в репозитории
+         - Пример: `model.safetensors` или `vae/vae.safetensors`
+         - Оставьте пустым, чтобы загрузить весь репозиторий
    - **Save to Folder** (обязательно): Выберите, куда сохранить модель
      - Стандартные папки: `checkpoints`, `loras`, `vae`, `upscale_models` и т.д.
      - Или выберите "Custom folder..." для указания кастомного пути
@@ -268,6 +315,18 @@ If the "Open Manager" button doesn't appear after adding the node:
       "category": "Кастомный",
       "models": [
         {
+          "direct_url": "https://huggingface.co/user/model/resolve/main/file.safetensors",
+          "save_path": "checkpoints",
+          "hf_token": ""
+        }
+      ]
+    },
+    {
+      "id": "preset-2",
+      "name": "HuggingFace пресет",
+      "category": "Кастомный",
+      "models": [
+        {
           "model_id": "username/model-name",
           "model_path": "model.safetensors",
           "save_path": "checkpoints",
@@ -285,6 +344,23 @@ If the "Open Manager" button doesn't appear after adding the node:
 3. Ваши пресеты будут объединены с существующими
 
 ## Описание полей
+
+### Direct URL (По умолчанию)
+Прямая ссылка для скачивания файла модели. Это опция по умолчанию и рекомендуемый способ загрузки моделей.
+
+**Как получить прямую ссылку:**
+1. Перейдите на страницу модели на [huggingface.co](https://huggingface.co)
+2. Перейдите к файлу, который хотите скачать
+3. Нажмите на имя файла
+4. Нажмите кнопку "Download" или правой кнопкой мыши "Копировать адрес ссылки"
+5. URL должен выглядеть так: `https://huggingface.co/user/model/resolve/main/file.safetensors`
+
+**Примеры:**
+- `https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned.safetensors`
+- `https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors`
+
+### Use HuggingFace Repository (Чекбокс)
+Включите этот чекбокс для использования HuggingFace Model ID вместо прямой ссылки. При включении появятся дополнительные поля для HuggingFace Model ID и Model Path.
 
 ### HuggingFace Model ID
 Идентификатор модели на HuggingFace в формате `username/model-name`. Вы можете найти его на странице модели на [huggingface.co](https://huggingface.co) - это путь в URL после домена.
@@ -328,6 +404,9 @@ If the "Open Manager" button doesn't appear after adding the node:
 
 ## Советы и хитрости
 
+- **Прямая ссылка по умолчанию** - просто вставьте ссылку для скачивания, не нужно включать HuggingFace Repository, если это не требуется
+- Файлы **автоматически проверяются** перед загрузкой - существующие файлы пропускаются для экономии времени и трафика
+- При использовании Model Path файлы сохраняются **напрямую в выбранную папку** без создания подпапок
 - Вы можете добавить несколько моделей в один пресет
 - Используйте категории для организации пресетов
 - Редактируйте пресеты с помощью кнопки ✏️
@@ -335,6 +414,7 @@ If the "Open Manager" button doesn't appear after adding the node:
 - При таймауте загрузка автоматически возобновится при следующей попытке
 - Используйте прокси или зеркала, если доступ к HuggingFace ограничен
 - Для приватных моделей укажите HuggingFace API Token
+- **Пресеты сохраняются автоматически** в `presets.json` и сохраняются после перезапуска ComfyUI
 
 ## Решение проблем
 
