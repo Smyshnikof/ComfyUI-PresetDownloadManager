@@ -256,7 +256,7 @@ def setup_routes():
                                 
                                 # Читаем первые байты для проверки (независимо от Content-Type)
                                 # Это нужно, так как некоторые серверы могут не указывать правильный Content-Type
-                                first_bytes = await response.read(1024)
+                                first_bytes = await response.content.read(1024)
                                 
                                 # Проверяем, не является ли ответ HTML страницей
                                 if first_bytes.startswith(b'<!DOCTYPE') or first_bytes.startswith(b'<html') or first_bytes.startswith(b'<!doctype') or first_bytes.startswith(b'<HTML'):
