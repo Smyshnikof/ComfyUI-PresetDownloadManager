@@ -663,12 +663,14 @@ app.registerExtension({
             let modelsText = "";
             if (modelsCount === 1) {
                 const model = models[0];
-                modelsText = `<span style="color: #aaa; font-size: 12px;">Model: ${model.model_id || 'N/A'}</span><br>
+                const modelDisplay = model.direct_url ? `Direct URL: ${model.direct_url.split('/').pop() || 'N/A'}` : (model.model_id || 'N/A');
+                modelsText = `<span style="color: #aaa; font-size: 12px;">Model: ${modelDisplay}</span><br>
                               <span style="color: #aaa; font-size: 12px;">Save to: ${model.save_path || 'N/A'}</span>`;
             } else {
                 modelsText = `<span style="color: #aaa; font-size: 12px;"><strong>${modelsCount} models:</strong></span><br>`;
                 models.forEach((model, idx) => {
-                    modelsText += `<span style="color: #aaa; font-size: 11px;">${idx + 1}. ${model.model_id || 'N/A'} → ${model.save_path || 'N/A'}</span><br>`;
+                    const modelDisplay = model.direct_url ? `Direct URL: ${model.direct_url.split('/').pop() || 'N/A'}` : (model.model_id || 'N/A');
+                    modelsText += `<span style="color: #aaa; font-size: 11px;">${idx + 1}. ${modelDisplay} → ${model.save_path || 'N/A'}</span><br>`;
                 });
             }
             details.innerHTML = modelsText;
@@ -804,24 +806,72 @@ app.registerExtension({
                 for (let i = 0; i < models.length; i++) {
                     const model = models[i];
                     
-                    // Обновляем прогресс
-                    updateProgressModal(progressModal, i + 1, totalModels, model.model_id);
+                    // Обновляем прогресс перед началом загрузки
+                    const modelDisplayName = model.direct_url ? (model.direct_url.split('/').pop() || "Direct URL") : model.model_id;
+                    updateProgressModal(progressModal, i + 1, totalModels, modelDisplayName);
                     
                     try {
+                        const downloadData = {
+                            save_path: model.save_path,
+                            hf_token: model.hf_token || ""  // Опциональный API ключ
+                        };
+                        
+                        if (model.direct_url) {
+                            downloadData.direct_url = model.direct_url;
+                        } else {
+                            downloadData.model_id = model.model_id;
+                            downloadData.model_path = model.model_path || "";
+                        }
+                        
+                        const modelDisplayName = model.direct_url ? (model.direct_url.split('/').pop() || "Direct URL") : model.model_id;
+                        
                         const response = await api.fetchApi("/preset_download_manager/download", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                model_id: model.model_id,
-                                model_path: model.model_path || "",
-                                save_path: model.save_path,
-                                hf_token: model.hf_token || ""  // Опциональный API ключ
-                            })
+                            body: JSON.stringify(downloadData)
                         });
                         
-                        const result = await response.json();
+                        // Проверяем статус ответа
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+                        }
+                        
+                        // Проверяем Content-Type перед парсингом JSON
+                        const contentType = response.headers.get("content-type") || "";
+                        let result;
+                        
+                        if (contentType.includes("application/json")) {
+                            try {
+                                result = await response.json();
+                            } catch (jsonError) {
+                                // Если не удалось распарсить JSON, но статус OK, возможно файл скачался
+                                // Проверяем, может быть это был успешный ответ, но с неправильным Content-Type
+                                const text = await response.text();
+                                console.warn("[PresetDownloadManager] Failed to parse JSON, but status was OK. Response:", text.substring(0, 200));
+                                // Пытаемся извлечь информацию из текста или считаем успешным
+                                throw new Error(`Server returned non-JSON response (${contentType}). File may have been downloaded successfully. Check the file location.`);
+                            }
+                        } else {
+                            // Если сервер вернул не JSON, но статус OK, возможно файл скачался
+                            // Читаем текст для диагностики
+                            const text = await response.text();
+                            console.warn("[PresetDownloadManager] Server returned non-JSON response:", contentType, text.substring(0, 200));
+                            
+                            // Если статус был OK, возможно файл все-таки скачался
+                            // Но мы не можем это проверить с frontend, поэтому выдаем ошибку
+                            throw new Error(`Server returned ${contentType} instead of JSON. File may have been downloaded successfully. Check the file location. Response preview: ${text.substring(0, 200)}`);
+                        }
                         
                         if (result.status === "success") {
+                            // Обновляем прогресс с путем сохранения
+                            if (result.path) {
+                                let progressText = result.path;
+                                if (result.message) {
+                                    progressText += ` (${result.message})`;
+                                }
+                                updateProgressModal(progressModal, i + 1, totalModels, modelDisplayName, progressText);
+                            }
                             successCount++;
                 } else {
                             errorCount++;
@@ -833,14 +883,15 @@ app.registerExtension({
                                 errorMsg = "Ошибка соединения: проверьте интернет-соединение.";
                             }
                             errors.push({
-                                model: model.model_id,
+                                model: modelDisplayName,
                                 error: errorMsg
                             });
                         }
                     } catch (error) {
                         errorCount++;
+                        const modelDisplayName = model.direct_url ? (model.direct_url.split('/').pop() || "Direct URL") : model.model_id;
                         errors.push({
-                            model: model.model_id,
+                            model: modelDisplayName,
                             error: error.message || "Network error"
                         });
                     }
@@ -912,9 +963,24 @@ app.registerExtension({
             progressText.style.cssText = `
                         color: #aaa;
                         font-size: 14px;
-                margin-bottom: 12px;
+                margin-bottom: 8px;
             `;
             modal.appendChild(progressText);
+            
+            // Добавляем отображение пути сохранения
+            const pathText = document.createElement("div");
+            pathText.id = "download-path-text";
+            pathText.textContent = ``;
+            pathText.style.cssText = `
+                        color: #888;
+                        font-size: 12px;
+                        font-family: monospace;
+                        margin-bottom: 12px;
+                        word-break: break-all;
+                        max-height: 60px;
+                        overflow-y: auto;
+            `;
+            modal.appendChild(pathText);
             
             const progressBarContainer = document.createElement("div");
             progressBarContainer.style.cssText = `
@@ -949,16 +1015,25 @@ app.registerExtension({
                 overlay: overlay,
                 modal: modal,
                 progressText: progressText,
-                progressBar: progressBar
+                progressBar: progressBar,
+                pathText: pathText
             };
         }
         
         // Функция для обновления прогресса
-        function updateProgressModal(progressModal, current, total, modelName) {
+        function updateProgressModal(progressModal, current, total, modelName, savePath = null) {
             const percentage = (current / total) * 100;
             progressModal.progressBar.style.width = `${percentage}%`;
             progressModal.progressBar.textContent = `${current}/${total}`;
             progressModal.progressText.textContent = `Downloading: ${modelName} (${current} of ${total})`;
+            
+            // Обновляем путь сохранения, если он указан
+            if (savePath) {
+                progressModal.pathText.textContent = `Saving to: ${savePath}`;
+                progressModal.pathText.style.color = "#4ade80";
+            } else {
+                progressModal.pathText.textContent = ``;
+            }
         }
         
         // Функция для закрытия модального окна прогресса
@@ -1030,23 +1105,63 @@ app.registerExtension({
                     
                     for (const model of models) {
                         currentModel++;
-                        updateProgressModal(progressModal, currentModel, totalModels, `${model.model_id} (${preset.name})`);
+                        const modelDisplayName = model.direct_url ? (model.direct_url.split('/').pop() || "Direct URL") : model.model_id;
+                        updateProgressModal(progressModal, currentModel, totalModels, `${modelDisplayName} (${preset.name})`);
                         
                         try {
+                            const downloadData = {
+                                save_path: model.save_path,
+                                hf_token: model.hf_token || ""  // Опциональный API ключ
+                            };
+                            
+                            if (model.direct_url) {
+                                downloadData.direct_url = model.direct_url;
+                            } else {
+                                downloadData.model_id = model.model_id;
+                                downloadData.model_path = model.model_path || "";
+                            }
+                            
                             const response = await api.fetchApi("/preset_download_manager/download", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                    model_id: model.model_id,
-                                    model_path: model.model_path || "",
-                                    save_path: model.save_path,
-                                    hf_token: model.hf_token || ""  // Опциональный API ключ
-                                })
+                                body: JSON.stringify(downloadData)
                             });
                             
-                            const result = await response.json();
+                            // Проверяем статус ответа
+                            if (!response.ok) {
+                                const errorText = await response.text();
+                                throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+                            }
+                            
+                            // Проверяем Content-Type перед парсингом JSON
+                            const contentType = response.headers.get("content-type") || "";
+                            let result;
+                            
+                            if (contentType.includes("application/json")) {
+                                try {
+                                    result = await response.json();
+                                } catch (jsonError) {
+                                    // Если не удалось распарсить JSON, но статус OK, возможно файл скачался
+                                    const text = await response.text();
+                                    console.warn("[PresetDownloadManager] Failed to parse JSON, but status was OK. Response:", text.substring(0, 200));
+                                    throw new Error(`Server returned non-JSON response (${contentType}). File may have been downloaded successfully. Check the file location.`);
+                                }
+                            } else {
+                                // Если сервер вернул не JSON, но статус OK, возможно файл скачался
+                                const text = await response.text();
+                                console.warn("[PresetDownloadManager] Server returned non-JSON response:", contentType, text.substring(0, 200));
+                                throw new Error(`Server returned ${contentType} instead of JSON. File may have been downloaded successfully. Check the file location. Response preview: ${text.substring(0, 200)}`);
+                            }
                             
                             if (result.status === "success") {
+                                // Обновляем прогресс с путем сохранения
+                                if (result.path) {
+                                    let progressText = result.path;
+                                    if (result.message) {
+                                        progressText += ` (${result.message})`;
+                                    }
+                                    updateProgressModal(progressModal, currentModel, totalModels, `${modelDisplayName} (${preset.name})`, progressText);
+                                }
                                 successCount++;
                             } else {
                                 errorCount++;
@@ -1059,7 +1174,7 @@ app.registerExtension({
                                 }
                                 errors.push({
                                     preset: preset.name || preset.id,
-                                    model: model.model_id,
+                                    model: modelDisplayName,
                                     error: errorMsg
                                 });
                             }
@@ -1167,9 +1282,54 @@ app.registerExtension({
             modelHeader.appendChild(removeBtn);
             modelItem.appendChild(modelHeader);
             
-            // HuggingFace Model ID
+            // Прямая ссылка (по умолчанию показывается)
+            const directUrlGroup = document.createElement("div");
+            directUrlGroup.style.cssText = `display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;`;
+            const directUrlLabel = document.createElement("label");
+            directUrlLabel.textContent = "Direct URL *";
+            directUrlLabel.style.cssText = `color: white; font-size: 14px; font-weight: bold;`;
+            const directUrlInput = document.createElement("input");
+            directUrlInput.type = "text";
+            directUrlInput.className = "model-direct-url-input";
+            directUrlInput.dataset.index = modelIndex;
+            directUrlInput.placeholder = "https://huggingface.co/.../resolve/main/file.safetensors";
+            directUrlInput.value = modelData ? (modelData.direct_url || "") : "";
+            directUrlInput.style.cssText = `
+                padding: 10px;
+                background: #1a1a1a;
+                border: 1px solid #444;
+                border-radius: 5px;
+                color: white;
+                font-size: 14px;
+            `;
+            directUrlGroup.appendChild(directUrlLabel);
+            directUrlGroup.appendChild(directUrlInput);
+            modelItem.appendChild(directUrlGroup);
+            
+            // Чекбокс для использования HuggingFace Repository
+            const useHfRepoGroup = document.createElement("div");
+            useHfRepoGroup.style.cssText = `display: flex; align-items: center; gap: 8px; margin-bottom: 12px;`;
+            const useHfRepoCheckbox = document.createElement("input");
+            useHfRepoCheckbox.type = "checkbox";
+            useHfRepoCheckbox.className = "model-use-hf-repo-checkbox";
+            useHfRepoCheckbox.dataset.index = modelIndex;
+            useHfRepoCheckbox.style.cssText = `width: 18px; height: 18px; cursor: pointer;`;
+            // Определяем, нужно ли включить чекбокс (если есть model_id, значит используется HF repo)
+            const useHfRepo = modelData && modelData.model_id && !modelData.direct_url;
+            useHfRepoCheckbox.checked = useHfRepo;
+            
+            const useHfRepoLabel = document.createElement("label");
+            useHfRepoLabel.textContent = "Use HuggingFace Repository";
+            useHfRepoLabel.style.cssText = `color: white; font-size: 14px; cursor: pointer;`;
+            useHfRepoLabel.onclick = () => useHfRepoCheckbox.click();
+            
+            useHfRepoGroup.appendChild(useHfRepoCheckbox);
+            useHfRepoGroup.appendChild(useHfRepoLabel);
+            modelItem.appendChild(useHfRepoGroup);
+            
+            // HuggingFace Model ID (показывается когда чекбокс включен)
             const modelIdGroup = document.createElement("div");
-            modelIdGroup.style.cssText = `display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;`;
+            modelIdGroup.style.cssText = `display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; display: none;`;
             const modelIdLabel = document.createElement("label");
             modelIdLabel.textContent = "HuggingFace Model ID *";
             modelIdLabel.style.cssText = `color: white; font-size: 14px; font-weight: bold;`;
@@ -1178,22 +1338,22 @@ app.registerExtension({
             modelIdInput.className = "model-id-input";
             modelIdInput.dataset.index = modelIndex;
             modelIdInput.placeholder = "user/model-name";
-            modelIdInput.value = modelData ? modelData.model_id || "" : "";
+            modelIdInput.value = modelData ? (modelData.model_id || "") : "";
             modelIdInput.style.cssText = `
                 padding: 10px;
                 background: #1a1a1a;
                 border: 1px solid #444;
                 border-radius: 5px;
                 color: white;
-                        font-size: 14px;
+                font-size: 14px;
             `;
             modelIdGroup.appendChild(modelIdLabel);
             modelIdGroup.appendChild(modelIdInput);
             modelItem.appendChild(modelIdGroup);
             
-            // Model Path (опционально)
+            // Model Path (опционально, показывается только для HuggingFace)
             const modelPathGroup = document.createElement("div");
-            modelPathGroup.style.cssText = `display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;`;
+            modelPathGroup.style.cssText = `display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; display: none;`;
             const modelPathLabel = document.createElement("label");
             modelPathLabel.textContent = "Model Path (optional)";
             modelPathLabel.style.cssText = `color: white; font-size: 14px; font-weight: bold;`;
@@ -1214,6 +1374,28 @@ app.registerExtension({
             modelPathGroup.appendChild(modelPathLabel);
             modelPathGroup.appendChild(modelPathInput);
             modelItem.appendChild(modelPathGroup);
+            
+            // Функция для переключения видимости полей
+            const updateSourceTypeVisibility = () => {
+                const useHf = useHfRepoCheckbox.checked;
+                // Если чекбокс включен - показываем поля HF, скрываем прямую ссылку
+                directUrlGroup.style.display = useHf ? "none" : "flex";
+                modelIdGroup.style.display = useHf ? "flex" : "none";
+                modelPathGroup.style.display = useHf ? "flex" : "none";
+                // Обновляем обязательность полей
+                if (useHf) {
+                    directUrlInput.required = false;
+                    modelIdInput.required = true;
+                    modelPathInput.required = false;
+                } else {
+                    directUrlInput.required = true;
+                    modelIdInput.required = false;
+                    modelPathInput.required = false;
+                }
+            };
+            
+            useHfRepoCheckbox.onchange = updateSourceTypeVisibility;
+            updateSourceTypeVisibility(); // Инициализация
             
             // Save Path (выбор папки)
             const savePathGroup = document.createElement("div");
@@ -1517,14 +1699,18 @@ app.registerExtension({
             const models = [];
             
             for (const item of modelItems) {
+                const useHfRepoCheckbox = item.querySelector('.model-use-hf-repo-checkbox');
                 const modelIdInput = item.querySelector('.model-id-input');
+                const directUrlInput = item.querySelector('.model-direct-url-input');
                 const modelPathInput = item.querySelector('.model-path-input');
                 const savePathSelect = item.querySelector('.model-save-path-select');
                 const customPathInput = item.querySelector('.model-custom-path-input');
                 const hfTokenInput = item.querySelector('.model-hf-token-input');
                 
-                const modelId = modelIdInput.value.trim();
-                const modelPath = modelPathInput.value.trim();
+                const useHfRepo = useHfRepoCheckbox ? useHfRepoCheckbox.checked : false;
+                const modelId = modelIdInput ? modelIdInput.value.trim() : "";
+                const directUrl = directUrlInput ? directUrlInput.value.trim() : "";
+                const modelPath = modelPathInput ? modelPathInput.value.trim() : "";
                 let savePath = savePathSelect.value;
                 const hfToken = hfTokenInput ? hfTokenInput.value.trim() : "";
                 
@@ -1539,18 +1725,33 @@ app.registerExtension({
                 }
                 
                 // Валидация модели
-                if (!modelId) {
-                    errorMsg.textContent = `Model #${parseInt(item.dataset.index) + 1}: HuggingFace Model ID is required`;
-                    modelIdInput.focus();
-                    return;
+                if (useHfRepo) {
+                    if (!modelId) {
+                        errorMsg.textContent = `Model #${parseInt(item.dataset.index) + 1}: HuggingFace Model ID is required`;
+                        if (modelIdInput) modelIdInput.focus();
+                        return;
+                    }
+                } else {
+                    if (!directUrl) {
+                        errorMsg.textContent = `Model #${parseInt(item.dataset.index) + 1}: Direct URL is required`;
+                        if (directUrlInput) directUrlInput.focus();
+                        return;
+                    }
                 }
                 
-                models.push({
-                    model_id: modelId,
-                    model_path: modelPath || "",
+                const modelData = {
                     save_path: savePath,
                     hf_token: hfToken || ""  // Опциональный API ключ
-                });
+                };
+                
+                if (useHfRepo) {
+                    modelData.model_id = modelId;
+                    modelData.model_path = modelPath || "";
+                } else {
+                    modelData.direct_url = directUrl;
+                }
+                
+                models.push(modelData);
             }
             
             // Проверяем, что есть хотя бы одна модель
@@ -1599,11 +1800,23 @@ app.registerExtension({
             
             // Сохраняем
             try {
-                await api.fetchApi("/preset_download_manager/presets", {
+                const response = await api.fetchApi("/preset_download_manager/presets", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(presetsData)
                 });
+                
+                const result = await response.json();
+                
+                // Показываем сообщение о результате сохранения
+                if (result.status === "success") {
+                    showToast("Preset saved successfully! Your presets are saved in presets.json and will persist after ComfyUI restart.", "success", 5000);
+                } else if (result.status === "warning") {
+                    showToast("Preset saved, but there may be an issue with file permissions. Please check the console.", "warning", 5000);
+                } else {
+                    showToast(result.message || "Error saving preset", "error");
+                    return;
+                }
                 
                 // Сбрасываем режим редактирования и возвращаемся к списку
                 editingPresetId = null;
@@ -1619,6 +1832,7 @@ app.registerExtension({
             } catch (error) {
                 console.error("[PresetDownloadManager] Ошибка сохранения пресета:", error);
                 errorMsg.textContent = "Error saving preset: " + error.message;
+                showToast("Error saving preset: " + error.message, "error");
             }
         }
         
@@ -1934,6 +2148,20 @@ app.registerExtension({
             // Тексты для английского языка
             const textsEn = {
                 title: "📖 Help & Instructions",
+                directUrl: {
+                    title: "🔗 Direct URL (Default)",
+                    description: "The direct download link to the model file. This is the default and recommended method.",
+                    howTo: "How to get a Direct URL:",
+                    step1: "1. Go to the model page on <a href=\"https://huggingface.co\" target=\"_blank\" style=\"color: #3b82f6;\">huggingface.co</a>",
+                    step2: "2. Navigate to the file you want to download",
+                    step3: "3. Click on the file name or right-click and \"Copy link address\"",
+                    step4: "4. The URL should look like: <code style=\"background: #2a2a2a; padding: 2px 6px; border-radius: 4px;\">https://huggingface.co/user/model/resolve/main/file.safetensors</code>",
+                    tip: "💡 This is the default option - just paste the direct URL. No need to enable HuggingFace Repository unless you need it."
+                },
+                useHfRepo: {
+                    title: "☐ Use HuggingFace Repository",
+                    description: "Enable this checkbox to use HuggingFace Model ID instead of Direct URL. When enabled, you'll see additional fields for HuggingFace Model ID and Model Path."
+                },
                 modelId: {
                     title: "HuggingFace Model ID",
                     description: "This is the model identifier on HuggingFace in the format <code style=\"background: #2a2a2a; padding: 2px 6px; border-radius: 4px; color: #3b82f6;\">username/model-name</code>",
@@ -1980,19 +2208,37 @@ app.registerExtension({
                 },
                 tips: {
                     title: "⚡ Tips & Tricks",
-                    tip1: "You can add multiple models to one preset",
-                    tip2: "Use categories to organize presets",
-                    tip3: "Edit presets using the ✏️ button",
-                    tip4: "Select multiple presets and download them all at once",
-                    tip5: "On timeout, the download will automatically resume on the next attempt",
-                    tip6: "Use proxy or mirrors if access to HuggingFace is restricted",
-                    tip7: "For private models, specify the HuggingFace API Token"
+                    tip1: "Direct URL is the default - just paste the download link",
+                    tip2: "Files are automatically checked before download - existing files are skipped",
+                    tip3: "When using Model Path, files are saved directly to the selected folder without subdirectories",
+                    tip4: "You can add multiple models to one preset",
+                    tip5: "Use categories to organize presets",
+                    tip6: "Edit presets using the ✏️ button",
+                    tip7: "Select multiple presets and download them all at once",
+                    tip8: "On timeout, the download will automatically resume on the next attempt",
+                    tip9: "Use proxy or mirrors if access to HuggingFace is restricted",
+                    tip10: "For private models, specify the HuggingFace API Token",
+                    tip11: "Presets are saved automatically in presets.json and persist after ComfyUI restart"
                 }
             };
             
             // Тексты для русского языка
             const textsRu = {
                 title: "📖 Справка и Инструкции",
+                directUrl: {
+                    title: "🔗 Direct URL (По умолчанию)",
+                    description: "Прямая ссылка для скачивания файла модели. Это опция по умолчанию и рекомендуемый способ.",
+                    howTo: "Как получить прямую ссылку:",
+                    step1: "1. Перейдите на страницу модели на <a href=\"https://huggingface.co\" target=\"_blank\" style=\"color: #3b82f6;\">huggingface.co</a>",
+                    step2: "2. Перейдите к файлу, который хотите скачать",
+                    step3: "3. Нажмите на имя файла или правой кнопкой мыши \"Копировать адрес ссылки\"",
+                    step4: "4. URL должен выглядеть так: <code style=\"background: #2a2a2a; padding: 2px 6px; border-radius: 4px;\">https://huggingface.co/user/model/resolve/main/file.safetensors</code>",
+                    tip: "💡 Это опция по умолчанию - просто вставьте прямую ссылку. Не нужно включать HuggingFace Repository, если это не требуется."
+                },
+                useHfRepo: {
+                    title: "☐ Use HuggingFace Repository",
+                    description: "Включите этот чекбокс для использования HuggingFace Model ID вместо прямой ссылки. При включении появятся дополнительные поля для HuggingFace Model ID и Model Path."
+                },
                 modelId: {
                     title: "HuggingFace Model ID",
                     description: "Это идентификатор модели на HuggingFace в формате <code style=\"background: #2a2a2a; padding: 2px 6px; border-radius: 4px; color: #3b82f6;\">username/model-name</code>",
@@ -2039,13 +2285,17 @@ app.registerExtension({
                 },
                 tips: {
                     title: "Tips & Tricks",
-                    tip1: "Вы можете добавить несколько моделей в один пресет",
-                    tip2: "Используйте категории для организации пресетов",
-                    tip3: "Редактируйте пресеты с помощью кнопки ✏️",
-                    tip4: "Выберите несколько пресетов и загрузите их все сразу",
-                    tip5: "При таймауте загрузка автоматически возобновится при следующей попытке",
-                    tip6: "Используйте прокси или зеркала, если доступ к HuggingFace ограничен",
-                    tip7: "Для приватных моделей укажите HuggingFace API Token"
+                    tip1: "Прямая ссылка по умолчанию - просто вставьте ссылку для скачивания",
+                    tip2: "Файлы автоматически проверяются перед загрузкой - существующие файлы пропускаются",
+                    tip3: "При использовании Model Path файлы сохраняются напрямую в выбранную папку без подпапок",
+                    tip4: "Вы можете добавить несколько моделей в один пресет",
+                    tip5: "Используйте категории для организации пресетов",
+                    tip6: "Редактируйте пресеты с помощью кнопки ✏️",
+                    tip7: "Выберите несколько пресетов и загрузите их все сразу",
+                    tip8: "При таймауте загрузка автоматически возобновится при следующей попытке",
+                    tip9: "Используйте прокси или зеркала, если доступ к HuggingFace ограничен",
+                    tip10: "Для приватных моделей укажите HuggingFace API Token",
+                    tip11: "Пресеты сохраняются автоматически в presets.json и сохраняются после перезапуска ComfyUI"
                 }
             };
             
@@ -2056,6 +2306,34 @@ app.registerExtension({
             const updateContent = () => {
                 const t = getTexts();
                 content.innerHTML = `
+                    <div style="margin-bottom: 24px;">
+                        <h3 style="color: #3b82f6; font-size: 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                            <span>🔗</span> <span>${t.directUrl.title}</span>
+                        </h3>
+                        <p style="margin-bottom: 8px; padding-left: 28px;">
+                            ${t.directUrl.description}
+                        </p>
+                        <p style="margin-bottom: 8px; padding-left: 28px; color: #aaa;">
+                            <strong>${t.directUrl.howTo}</strong><br>
+                            ${t.directUrl.step1}<br>
+                            ${t.directUrl.step2}<br>
+                            ${t.directUrl.step3}<br>
+                            ${t.directUrl.step4}
+                        </p>
+                        <p style="margin-bottom: 16px; padding-left: 28px; color: #888; font-size: 12px;">
+                            ${t.directUrl.tip}
+                        </p>
+                    </div>
+                    
+                    <div style="margin-bottom: 24px;">
+                        <h3 style="color: #3b82f6; font-size: 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                            <span>☐</span> <span>${t.useHfRepo.title}</span>
+                        </h3>
+                        <p style="margin-bottom: 16px; padding-left: 28px;">
+                            ${t.useHfRepo.description}
+                        </p>
+                    </div>
+                    
                     <div style="margin-bottom: 24px;">
                         <h3 style="color: #3b82f6; font-size: 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
                             <span>🔍</span> <span>${t.modelId.title}</span>
@@ -2156,6 +2434,10 @@ app.registerExtension({
                             <li style="margin-bottom: 8px;">${t.tips.tip5}</li>
                             <li style="margin-bottom: 8px;">${t.tips.tip6}</li>
                             <li style="margin-bottom: 8px;">${t.tips.tip7}</li>
+                            <li style="margin-bottom: 8px;">${t.tips.tip8}</li>
+                            <li style="margin-bottom: 8px;">${t.tips.tip9}</li>
+                            <li style="margin-bottom: 8px;">${t.tips.tip10}</li>
+                            <li style="margin-bottom: 8px;">${t.tips.tip11}</li>
                         </ul>
                     </div>
                 `;

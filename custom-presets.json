@@ -1,0 +1,18 @@
+{
+  "categories": [],
+  "presets": [
+    {
+      "id": "preset-1762614258532",
+      "name": "Flux GGUF",
+      "category": "GGUF",
+      "models": [
+        {
+          "model_id": "city96/FLUX.1-dev-gguf",
+          "model_path": "flux1-dev-Q2_K.gguf",
+          "save_path": "diffusion_models",
+          "hf_token": ""
+        }
+      ]
+    }
+  ]
+}
