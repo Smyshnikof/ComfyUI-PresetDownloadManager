@@ -1,8 +1,8 @@
 [project]
 name = "comfyui-preset-download-manager"
 description = "A custom ComfyUI node for managing and downloading models from HuggingFace with preset support"
-version = "1.0.8"
-license = { file = "LICENSE" }
+version = "1.0.9"
+license = { text = "MIT License" }
 dependencies = [
     "huggingface-hub>=0.34,<1.0",
     "aiohttp>=3.8,<4"
@@ -14,5 +14,5 @@ Repository = "https://github.com/Smyshnikof/ComfyUI-PresetDownloadManager"
 [tool.comfy]
 PublisherId = "smyshnikof"
 DisplayName = "Preset Download Manager"
-Icon = ""
+Icon = "https://raw.githubusercontent.com/Smyshnikof/ComfyUI-PresetDownloadManager/main/icon.png"
 
