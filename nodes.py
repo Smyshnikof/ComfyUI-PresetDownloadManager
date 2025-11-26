@@ -1,5 +1,6 @@
 import os
 import json
+import random
 import shutil
 import folder_paths
 from aiohttp import web
@@ -288,8 +289,15 @@ def setup_routes():
                         
                         # Проверяем, это таймаут или ошибка соединения
                         is_timeout = any(keyword in error_msg.lower() for keyword in [
-                            'timeout', 'timed out', 'connection', 'read timeout', 
-                            'connectionpool', 'cas-bridge'
+                            'timeout',
+                            'timed out',
+                            'connection',
+                            'read timeout',
+                            'connectionpool',
+                            'cas-bridge',
+                            'http 524',
+                            '524',
+                            'cloudflare'
                         ])
                         
                         if is_timeout and attempt < max_retries - 1:
@@ -300,19 +308,54 @@ def setup_routes():
                             raise
             else:
                 # Используем huggingface_hub для загрузки
-                from huggingface_hub import hf_hub_download, snapshot_download
+                from huggingface_hub import hf_hub_download, snapshot_download, model_info
+                from huggingface_hub.utils import HfHubHTTPError
                 import time
                 
-                # Настройка прокси из переменных окружения (если есть)
-                # Можно установить через: export HF_ENDPOINT=https://hf-mirror.com (для зеркал)
-                # или export HTTP_PROXY=http://proxy:port / HTTPS_PROXY=http://proxy:port
+                # Параметры для повторных попыток/таймаутов можно переопределить переменными окружения
+                max_retries = int(os.environ.get("PDM_MAX_RETRIES", "5"))
+                retry_delay = int(os.environ.get("PDM_RETRY_DELAY", "10"))
+                max_retry_delay = int(os.environ.get("PDM_MAX_RETRY_DELAY", "60"))
+                download_timeout = int(os.environ.get("PDM_DOWNLOAD_TIMEOUT", "300"))
+                snapshot_workers = int(os.environ.get("PDM_SNAPSHOT_WORKERS", "1"))
+                initial_retry_delay = retry_delay
                 
-                # Параметры для повторных попыток
-                max_retries = 5  # Увеличиваем количество попыток
-                retry_delay = 10  # Увеличиваем начальную задержку
+                def _calculate_required_bytes():
+                    """Оценивает размер загрузки, чтобы проверить место на диске."""
+                    try:
+                        info = model_info(model_id, token=hf_token if hf_token else None)
+                        if not info or not getattr(info, "siblings", None):
+                            return None
+                        if model_path:
+                            for sibling in info.siblings:
+                                if sibling.rfilename == model_path:
+                                    return sibling.size
+                            return None
+                        return sum((sibling.size or 0) for sibling in info.siblings)
+                    except Exception as info_error:
+                        print(f"[PresetDownloadManager] ⚠️ Не удалось получить размер репозитория: {info_error}")
+                        return None
                 
-                # Настройка таймаутов через переменные окружения (если нужно)
-                # Можно установить: export HF_HUB_DOWNLOAD_TIMEOUT=300
+                def _ensure_disk_space(required_bytes: int):
+                    """Проверяет, достаточно ли места с запасом 10%."""
+                    if not required_bytes:
+                        return
+                    try:
+                        os.makedirs(base_path, exist_ok=True)
+                        usage = shutil.disk_usage(base_path)
+                    except FileNotFoundError:
+                        parent_dir = os.path.dirname(base_path) or "."
+                        usage = shutil.disk_usage(parent_dir)
+                    required_with_buffer = int(required_bytes * 1.1)
+                    if usage.free < required_with_buffer:
+                        raise RuntimeError(
+                            f"Недостаточно свободного места: нужно ~{required_with_buffer / (1024**3):.2f} ГБ, "
+                            f"доступно {usage.free / (1024**3):.2f} ГБ"
+                        )
+                
+                required_bytes = _calculate_required_bytes()
+                if required_bytes:
+                    _ensure_disk_space(required_bytes)
                 
                 # Проверяем существование файла перед началом скачивания (для model_path)
                 if model_path:
@@ -378,7 +421,8 @@ def setup_routes():
                                     local_dir_use_symlinks=False,
                                     resume_download=True,
                                     force_download=False,
-                                    token=token
+                                    token=token,
+                                    timeout=download_timeout
                                 )
                                 
                                 # Если имя файла не было определено ранее, берем из скачанного файла
@@ -400,26 +444,61 @@ def setup_routes():
                                 local_dir_use_symlinks=False,
                                 resume_download=True,  # Возобновление загрузки
                                 ignore_patterns=["*.part"],  # Игнорируем частично загруженные файлы
-                                token=token  # API ключ (если указан)
+                                token=token,  # API ключ (если указан)
+                                timeout=download_timeout,
+                                max_workers=snapshot_workers
                             )
                         
                         # Если успешно загрузили, выходим из цикла
                         break
+                    
+                    except HfHubHTTPError as e:
+                        last_error = e
+                        status_code = getattr(getattr(e, "response", None), "status_code", None)
+                        error_msg = f"HfHubHTTPError ({status_code}): {e}"
                         
+                        retryable_statuses = {408, 409, 423, 425, 429, 500, 502, 503, 504, 524}
+                        is_retryable = (
+                            status_code in retryable_statuses
+                            or (status_code and 500 <= status_code < 600)
+                            or (status_code is None and "timeout" in str(e).lower())
+                        )
+                        
+                        if is_retryable and attempt < max_retries - 1:
+                            wait_time = min(
+                                max_retry_delay,
+                                retry_delay + random.uniform(0, 3)
+                            )
+                            time.sleep(wait_time)
+                            retry_delay = min(int(retry_delay * 1.5) or initial_retry_delay, max_retry_delay)
+                            continue
+                        raise
+                    
                     except Exception as e:
                         last_error = e
                         error_msg = str(e)
                         
                         # Проверяем, это таймаут или ошибка соединения
                         is_timeout = any(keyword in error_msg.lower() for keyword in [
-                            'timeout', 'timed out', 'connection', 'read timeout', 
-                            'connectionpool', 'cas-bridge'
+                            'timeout',
+                            'timed out',
+                            'connection',
+                            'read timeout',
+                            'connectionpool',
+                            'cas-bridge',
+                            'http 524',
+                            '524',
+                            'cloudflare'
                         ])
                         
                         if is_timeout and attempt < max_retries - 1:
                             # Если это таймаут и есть еще попытки, ждем и пробуем снова
-                            time.sleep(retry_delay)
-                            retry_delay = min(retry_delay * 1.5, 60)  # Увеличиваем задержку, но не более 60 сек
+                            wait_time = min(
+                                max_retry_delay,
+                                retry_delay + random.uniform(0, 3)
+                            )
+                            time.sleep(wait_time)
+                            retry_delay = min(int(retry_delay * 1.5) or initial_retry_delay, max_retry_delay)
                             continue
                         else:
                             # Если это не таймаут или попытки закончились, выбрасываем ошибку
@@ -453,11 +532,9 @@ def setup_routes():
                 user_message = (
                     f"⏱️ Таймаут при загрузке: соединение с HuggingFace прервалось.\n\n"
                     f"💡 Возможные решения:\n"
-                    f"1. Используйте прокси (если доступ к HuggingFace ограничен):\n"
-                    f"   export HTTPS_PROXY=http://your-proxy:port\n\n"
-                    f"2. Используйте зеркало HuggingFace:\n"
-                    f"   export HF_ENDPOINT=https://hf-mirror.com\n\n"
-                    f"3. Попробуйте загрузить снова - загрузка автоматически возобновится с места остановки.\n\n"
+                    f"1. Используйте прокси/VPN (если доступ к HuggingFace ограничен).\n\n"
+                    f"2. Попробуйте загрузить снова — загрузка автоматически возобновится с места остановки.\n"
+                    f"   При необходимости увеличьте переменные PDM_MAX_RETRIES и PDM_DOWNLOAD_TIMEOUT.\n\n"
                     f"Оригинальная ошибка: {error_msg}"
                 )
             elif "connection" in error_msg.lower() or "connectionpool" in error_msg.lower():
